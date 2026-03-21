@@ -1,0 +1,18 @@
+# Your Virtual Environment
+hack_virtu_env/
+
+# Python Cache Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Secrets and Local Configurations
+.env
+.env.local
+
+# Editor and OS Temp Files
+*.swp
+*.swo
+.DS_Store
