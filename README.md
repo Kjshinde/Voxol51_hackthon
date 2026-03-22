@@ -3,7 +3,7 @@
 **A Real-Time AI Hardware Scanner and Project Architect**
 
 [![Built with FiftyOne](https://img.shields.io/badge/Built%20with-FiftyOne-ff69b4.svg)](https://voxel51.com/fiftyone/)
-[![Powered by Gemini](https://img.shields.io/badge/Powered%20by-Gemini%201.5%20Flash-blue.svg)](https://deepmind.google/technologies/gemini/)
+[![Powered by Gemini](https://img.shields.io/badge/Powered%20by-Gemini%202.5%20Flash-blue.svg)](https://deepmind.google/technologies/gemini/)
 
 ## 💡 Inspiration
 During hackathons and late-night building sessions, makers often have a desk full of random electronic components—sensors, microcontrollers, resistors, and motors—but struggle to come up with a cohesive project that uses exactly what they have on hand. **The Maker's Lens** turns your webcam into an "Iron Man HUD" that scans your desk, identifies your hardware, and instantly architects a technical project you can build right now.
