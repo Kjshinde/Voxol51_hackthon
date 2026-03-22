@@ -1,220 +1,74 @@
-# CircuitMind 🔬⚡
+# 🔍 The Maker's Lens
 
-> **Real-time AI Lab Supervisor for Electronics**  
-> Point your webcam at a workbench. CircuitMind identifies components, draws bounding boxes, and prints a live inventory — powered by Google Gemini Vision.
+**A Real-Time AI Hardware Scanner and Project Architect**
 
----
+[![Built with FiftyOne](https://img.shields.io/badge/Built%20with-FiftyOne-ff69b4.svg)](https://voxel51.com/fiftyone/)
+[![Powered by Gemini](https://img.shields.io/badge/Powered%20by-Gemini%201.5%20Flash-blue.svg)](https://deepmind.google/technologies/gemini/)
 
-## What It Does
+## 💡 Inspiration
+During hackathons and late-night building sessions, makers often have a desk full of random electronic components—sensors, microcontrollers, resistors, and motors—but struggle to come up with a cohesive project that uses exactly what they have on hand. **The Maker's Lens** turns your webcam into an "Iron Man HUD" that scans your desk, identifies your hardware, and instantly architects a technical project you can build right now.
 
-CircuitMind watches your electronics workbench through a webcam and uses the Google Gemini Vision API to recognise components in real time. Every 30 frames it sends a snapshot to Gemini, receives a structured JSON response, and overlays colour-coded bounding boxes on the live video feed while printing a running inventory to the terminal.
+## ⚙️ What it does
+1. **The Eye:** Uses a webcam and OpenCV to capture high-resolution images of electronic components.
+2. **The Brain:** Feeds the image to Google's Gemini 1.5 Flash Vision model, which performs zero-shot identification of the hardware and generates a custom, intermediate-to-advanced project blueprint.
+3. **The Dashboard:** Automatically logs the captured images, the identified component lists, and the generated project ideas into a beautiful, searchable Voxel51 (FiftyOne) dataset for easy review.
 
-**Detects:** resistors, capacitors, ICs, LEDs, transistors, diodes, and other components.
-
----
-
-## Demo Output
-
-```
-──────────────────────────────────────────────────
-  CircuitMind — Scan at 14:22:07  (1.8s API)
-──────────────────────────────────────────────────
-  1×  ic [NE555]
-  2×  led [red]
-  3×  resistor [10kΩ]
-  1×  capacitor [100µF]
-──────────────────────────────────────────────────
-  INVENTORY: 1x ic [NE555], 2x led [red], 3x resistor [10kΩ], 1x capacitor [100µF]
-```
-
-Live OpenCV window shows colour-coded boxes:
-
-| Component   | Colour  |
-|-------------|---------|
-| Resistor    | Orange  |
-| Capacitor   | Green   |
-| IC          | Red     |
-| LED         | Blue    |
-| Transistor  | Yellow  |
-| Diode       | Purple  |
+## 🛠️ Tech Stack
+* **Python 3.8+**
+* **OpenCV** - For real-time webcam video capture.
+* **Google Gemini API** - For multimodal vision analysis and natural language generation.
+* **Voxel51 (FiftyOne)** - For dynamic dataset visualization and UI generation.
+* **python-dotenv** - For secure API key management.
 
 ---
 
-## Project Roadmap
+## 🚀 Getting Started
 
-| Part | Status | Description |
-|------|--------|-------------|
-| **Part 1** | ✅ Complete | Real-time webcam detection + terminal inventory |
-| Part 2 | 🔜 Planned | Auto-schematic generation from detected components |
-| Part 3 | 🔜 Planned | FiftyOne dataset browser + scan history |
-| Part 4 | 🔜 Planned | REST API + web dashboard |
+Follow these steps to get the project running on your local machine in minutes.
 
----
-
-## Requirements
-
-- **OS:** Linux (Ubuntu 22.04 / 24.04 recommended)
-- **Python:** 3.10 or higher
-- **Webcam:** USB or built-in (V4L2 compatible)
-- **API key:** Google Gemini ([get one free](https://aistudio.google.com/app/apikey))
-
----
-
-## Installation
-
-### 1. Clone the repository
-
+### 1. Clone & Setup Environment
 ```bash
-git clone https://github.com/your-username/circuitmind.git
-cd circuitmind
+# Clone the repository
+git clone [https://github.com/YOUR_USERNAME/makers-lens.git](https://github.com/YOUR_USERNAME/makers-lens.git)
+cd makers-lens
+
+# Create and activate a virtual environment (recommended)
+python -m venv venv
+# On Windows: venv\Scripts\activate
+# On macOS/Linux: source venv/bin/activate
+
+# Install the required dependencies
+pip install fiftyone opencv-python google-generativeai pillow python-dotenv
 ```
 
-### 2. (Recommended) Create a virtual environment
+### 2. Secure Your API Key
+Get a free Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/). 
 
+Create a file named `.env` in the root of your project directory and add your key:
+```env
+GEMINI_API_KEY=your_actual_api_key_here
+```
+*(Note: The `.env` file is included in our `.gitignore` to keep your credentials safe!)*
+
+### 3. Run the Application
+Make sure your webcam is connected, then start the scanner:
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Install system-level dependencies
-
-These are needed for OpenCV's display backend on Linux:
-
-```bash
-sudo apt update
-sudo apt install -y libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 v4l-utils
-```
-
-### 5. Set your Gemini API key
-
-```bash
-export GEMINI_API_KEY="your_key_here"
-```
-
-To make this permanent, add the line to your `~/.bashrc` or `~/.zshrc`:
-
-```bash
-echo 'export GEMINI_API_KEY="your_key_here"' >> ~/.bashrc
-source ~/.bashrc
+python app.py
 ```
 
 ---
 
-## Usage
+## 🎮 How to Demo
 
-```bash
-python3 circuitmind.py
-```
+1. Once the app is running, a webcam window will pop up. Point your camera at a breadboard, an Arduino, or a pile of loose sensors.
+2. Press the **Spacebar** to take a snapshot. Look at your terminal to confirm the AI is analyzing it.
+3. Press **`q`** to close the camera interface.
+4. The **FiftyOne Dashboard** will instantly launch in your web browser (`http://localhost:5151`). Click on the images you just captured to see the AI's component breakdown and project blueprint side-by-side with your photo!
 
-- Point your webcam at any electronics (breadboard, PCB, loose components)
-- Bounding boxes and labels update every 30 frames
-- Press **Q** or **Esc** to quit
+## 🚧 Challenges We Ran Into
+* **Real-time constraints:** Training a custom YOLO or CNN model to recognize specific microcontrollers requires thousands of labeled images and massive compute. We pivoted to using Gemini 1.5 Flash to achieve zero-shot object detection within the 2-hour hackathon limit.
+* **UI Development:** Building a React/Vue frontend from scratch would have eaten our entire time budget. Voxel51 provided an out-of-the-box, highly professional UI that allowed us to focus purely on the computer vision and AI logic.
 
-### Check available webcams (optional)
-
-```bash
-v4l2-ctl --list-devices
-```
-
-If your camera isn't index `0`, edit this line at the top of `circuitmind.py`:
-
-```python
-WEBCAM_INDEX = 1   # try 1, 2, etc.
-```
-
----
-
-## Configuration
-
-All tunable settings are at the top of `circuitmind.py`:
-
-| Variable | Default | Description |
-|---|---|---|
-| `MODEL_NAME` | `gemini-1.5-flash` | Gemini model to use. Swap to `gemini-1.5-pro` for higher accuracy |
-| `PROCESS_EVERY` | `30` | Analyse every Nth frame. Increase to reduce API calls |
-| `WEBCAM_INDEX` | `0` | Camera index. Change if your webcam isn't the default device |
-
----
-
-## Project Structure
-
-```
-circuitmind/
-├── circuitmind.py      # Main script — Part 1
-├── requirements.txt    # Python dependencies
-├── README.md           # This file
-└── .gitignore          # (recommended — see below)
-```
-
----
-
-## .gitignore (recommended)
-
-Create a `.gitignore` to keep secrets and junk out of the repo:
-
-```
-.venv/
-__pycache__/
-*.pyc
-.env
-*.jpg
-*.png
-*.mp4
-```
-
-**Never commit your `GEMINI_API_KEY`.** Always load it from an environment variable or a `.env` file that is listed in `.gitignore`.
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| `GEMINI_API_KEY not set` | Run `export GEMINI_API_KEY="..."` before launching |
-| `Could not open webcam (index 0)` | Try `WEBCAM_INDEX = 1` or `2` |
-| OpenCV window doesn't appear | Run `sudo apt install libgl1 libglib2.0-0` |
-| JSON parse errors in terminal | Usually transient — if persistent, switch to `gemini-1.5-pro` |
-| API quota / rate limit errors | Increase `PROCESS_EVERY` to `60` or `90` |
-| Slow performance | Add `cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)` after `VideoCapture()` |
-
----
-
-## How It Works
-
-```
-Webcam frame (every 30th)
-        │
-        ▼
- BGR → PIL RGB conversion
-        │
-        ▼
- Gemini Vision API
- (gemini-1.5-flash)
-        │
-        ▼
- JSON: [{type, value, region, confidence}, …]
-        │
-        ├──► Draw coloured bounding boxes on live frame (OpenCV)
-        │
-        └──► Print inventory summary to terminal
-```
-
-Gemini returns detections mapped to a 3×3 grid (top-left, middle-center, etc.) which CircuitMind converts to pixel bounding boxes on the video frame.
-
----
-
-## Contributing
-
-Pull requests are welcome. For major changes please open an issue first to discuss what you'd like to change.
-
----
-
-## License
-
-MIT — see `LICENSE` for details.
+## 🔮 What's Next
+* **Voice Integration:** Allowing the user to ask questions about the scanned components (e.g., "What is the pinout for that specific IC?") via audio.
+* **Live AR Overlays:** Rendering bounding boxes and labels directly over the webcam feed before capturing the image.
