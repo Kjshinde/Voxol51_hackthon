@@ -3,27 +3,20 @@
  circuitmind.py — Full pipeline  (run AFTER all milestones pass)
 ═══════════════════════════════════════════════════════════════════
  Processes every image in pictures/ through:
-   Gemini Vision -> JSON storage -> Annotated output images
-
- Storage: JSON (no MongoDB/FiftyOne needed — AVX workaround)
- To swap back to FiftyOne later: replace storage.save_sample()
- calls with fo.Sample + dataset.add_sample() — data structure is identical.
+   Gemini Vision -> FiftyOne dataset -> Annotated output images
 
  Prerequisites:
    python milestone_1_images.py    <- images load OK
    python milestone_2_gemini.py    <- Gemini API works
-   python milestone_3_storage.py   <- JSON storage works
+   python milestone_3_fiftyone.py  <- FiftyOne DB works
    python milestone_4_detector.py  <- detection + drawing works
 
  Output:
-   pictures/annotated/   <- images with bounding boxes drawn
-   results/circuitmind.json  <- all detections in JSON format
+   pictures/annotated/  <- images with bounding boxes drawn
+   FiftyOne dataset named "circuitmind"  <- browse with view_dataset.py
 
  Run:
    python circuitmind.py
-
- View results:
-   python view_results.py
 ═══════════════════════════════════════════════════════════════════
 """
 
@@ -31,8 +24,7 @@ import os
 import re
 import sys
 import json
-import config   # sets env vars + shared settings
-import storage  # JSON storage layer (replaces FiftyOne)
+import config   # MUST be first: sets FIFTYONE_DATABASE_DIR before fiftyone import
 
 from pathlib import Path
 from collections import Counter, defaultdict
@@ -41,14 +33,59 @@ import cv2
 from PIL import Image
 from google import genai
 
+# Import fiftyone AFTER config has set the DB path
+import fiftyone as fo
+
 # ── Pull all settings from config ─────────────────────────────────────────────
 GEMINI_MODEL   = config.GEMINI_MODEL
 GEMINI_PROMPT  = config.GEMINI_PROMPT
+DATASET_NAME   = config.DATASET_NAME
 TYPE_COLORS    = config.TYPE_COLORS
 DEFAULT_COLOR  = config.DEFAULT_COLOR
 LOCATION_BOXES = config.LOCATION_BOXES
 DEFAULT_BOX    = config.DEFAULT_BOX
 ANNOTATED_DIR  = config.PICTURES_DIR / "annotated"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FiftyOne
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_or_create_dataset(name):
+    """Load existing dataset or create a fresh persistent one."""
+    if fo.dataset_exists(name):
+        ds = fo.load_dataset(name)
+        print("[FiftyOne] Loaded existing dataset '" + name + "' (" + str(len(ds)) + " samples)")
+    else:
+        ds = fo.Dataset(name=name, persistent=True)
+        print("[FiftyOne] Created new persistent dataset '" + name + "'")
+    return ds
+
+
+def build_fo_detections(components):
+    """
+    Convert Gemini component dicts -> fo.Detection objects.
+    label            = component type (lowercase string)
+    bounding_box     = normalised [x, y, w, h] from the 3x3 grid
+    value            = component value/descriptor
+    confidence_level = "high"|"medium"|"low"  (string)
+                       NOTE: 'confidence' is a reserved float field in FiftyOne,
+                       so we use 'confidence_level' for Gemini's string value.
+    """
+    result = []
+    for comp in components:
+        ctype    = str(comp.get("type",       "other")).lower()
+        value    = str(comp.get("value",      "unknown"))
+        location = str(comp.get("location",   "center"))
+        conf     = str(comp.get("confidence", "low"))
+        bbox     = LOCATION_BOXES.get(location.lower().strip(), DEFAULT_BOX)
+        result.append(fo.Detection(
+            label            = ctype,
+            bounding_box     = bbox,
+            value            = value,
+            confidence_level = conf,
+        ))
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,16 +138,13 @@ def draw_overlay(frame, components):
         conf     = str(comp.get("confidence", "low"))
         inventory[ctype] += 1
 
-        color          = color_for_type(ctype)
+        color       = color_for_type(ctype)
         bx, by, bw, bh = LOCATION_BOXES.get(location.lower().strip(), DEFAULT_BOX)
 
         x1, y1 = int(bx * w),        int(by * h)
         x2, y2 = int((bx+bw) * w),   int((by+bh) * h)
 
-        # Bounding box
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-        # Label with colored background
         label       = ctype + ": " + value + " [" + conf + "]"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
         cv2.rectangle(frame, (x1, y1-th-6), (x1+tw+4, y1), color, -1)
@@ -119,7 +153,7 @@ def draw_overlay(frame, components):
             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA,
         )
 
-    # INVENTORY HUD (top-left)
+    # INVENTORY HUD
     hud_lines = ["INVENTORY"] + [str(cnt) + "x " + t for t, cnt in sorted(inventory.items())]
     y_cur = 28
     for line in hud_lines:
@@ -132,7 +166,7 @@ def draw_overlay(frame, components):
 
 
 def print_inventory(img_name, components):
-    """Print formatted component inventory to terminal."""
+    """Print formatted inventory to terminal."""
     print()
     print("=== CIRCUITMIND INVENTORY [" + img_name + "] ===")
     tally = defaultdict(list)
@@ -146,8 +180,7 @@ def print_inventory(img_name, components):
         if len(vals) == 1:
             print("  1x " + ctype + "  (" + vals[0] + ")")
         else:
-            print("  " + str(len(vals)) + "x " + ctype +
-                  "  (" + ", ".join(vals) + ")")
+            print("  " + str(len(vals)) + "x " + ctype + "  (" + ", ".join(vals) + ")")
     print("=" * 44)
 
 
@@ -164,18 +197,19 @@ def main():
     # ── API key ───────────────────────────────────────────────────────────────
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("[Error] Set GOOGLE_API_KEY:  export GOOGLE_API_KEY='...'")
+        print("[Error] Set GOOGLE_API_KEY first:  export GOOGLE_API_KEY='...'")
         sys.exit(1)
 
-    # ── Gemini client ─────────────────────────────────────────────────────────
+    # ── Gemini ────────────────────────────────────────────────────────────────
     print("[Gemini] Initialising — model: " + GEMINI_MODEL)
     client = genai.Client(api_key=api_key)
     print("[Gemini] Ready")
     print()
 
-    # ── Storage ───────────────────────────────────────────────────────────────
-    print("[Storage] Results file: " + str(storage.RESULTS_FILE))
-    print("[Storage] Existing samples: " + str(storage.sample_count()))
+    # ── FiftyOne ──────────────────────────────────────────────────────────────
+    db_dir = os.environ.get("FIFTYONE_DATABASE_DIR", "default")
+    print("[FiftyOne] DB directory: " + db_dir)
+    dataset = load_or_create_dataset(DATASET_NAME)
     print()
 
     # ── Images ────────────────────────────────────────────────────────────────
@@ -196,18 +230,27 @@ def main():
         # Load image
         frame = cv2.imread(str(img_path))
         if frame is None:
-            print("[CircuitMind] Could not load — skipping")
+            print("[CircuitMind] Could not load image — skipping")
             continue
         pil_img = Image.open(img_path).convert("RGB")
 
         # Gemini detection
         components = call_gemini(client, pil_img, img_path.name)
 
-        # Save to JSON storage
-        total_saved = storage.save_sample(str(img_path.resolve()), components)
-        print("[Storage] Dataset total: " + str(total_saved) + " sample(s)")
+        # Build fo.Detections
+        fo_detections = build_fo_detections(components)
 
-        # Draw annotated image
+        # Save to FiftyOne
+        try:
+            sample = fo.Sample(filepath=str(img_path.resolve()))
+            sample["components"] = fo.Detections(detections=fo_detections)
+            dataset.add_sample(sample)
+            dataset.save()
+            print("[FiftyOne] Sample saved — dataset total: " + str(len(dataset)))
+        except Exception as e:
+            print("[FiftyOne] Save failed: " + str(e))
+
+        # Draw and save annotated image
         annotated = draw_overlay(frame.copy(), components)
         out_path  = ANNOTATED_DIR / img_path.name
         cv2.imwrite(str(out_path), annotated)
@@ -218,13 +261,12 @@ def main():
         print()
 
     # ── Done ──────────────────────────────────────────────────────────────────
-    print("[CircuitMind] All " + str(total) + " image(s) processed")
-    print()
-    storage.print_summary()
+    print("[CircuitMind] All images processed")
+    print("[FiftyOne] Dataset '" + DATASET_NAME + "' now has " + str(len(dataset)) + " samples")
     print()
     print("Next steps:")
-    print("  View annotated images:  python view_results.py")
-    print("  Results JSON:           cat results/circuitmind.json")
+    print("  View annotated images:  ls pictures/annotated/")
+    print("  Browse in FiftyOne App: python view_dataset.py")
 
 
 if __name__ == "__main__":

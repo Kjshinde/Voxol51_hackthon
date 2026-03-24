@@ -1,0 +1,42 @@
+{
+  "dataset": "circuitmind",
+  "samples": [
+    {
+      "filepath": "/home/vboxuser/Voxel51_hackathon/Voxel51_Vipul/pictures/pic_1.png",
+      "filename": "pic_1.png",
+      "processed_at": "2026-03-21T23:48:26.357702",
+      "components": [
+        {
+          "type": "resistor",
+          "value": "33 Ohm, 1%",
+          "location": "top-center",
+          "confidence": "high"
+        },
+        {
+          "type": "diode",
+          "value": "unknown",
+          "location": "top-center",
+          "confidence": "high"
+        },
+        {
+          "type": "transistor",
+          "value": "unknown (TO-220 package)",
+          "location": "center",
+          "confidence": "high"
+        },
+        {
+          "type": "transistor",
+          "value": "unknown",
+          "location": "bottom-center",
+          "confidence": "high"
+        },
+        {
+          "type": "capacitor",
+          "value": "unknown (electrolytic)",
+          "location": "bottom-center",
+          "confidence": "high"
+        }
+      ]
+    }
+  ]
+}
