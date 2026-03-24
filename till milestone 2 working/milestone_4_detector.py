@@ -1,29 +1,29 @@
 """
 ═══════════════════════════════════════════════════════════════════
- circuitmind.py — Full pipeline  (run AFTER all milestones pass)
+ MILESTONE 4 — Picture detector  (no FiftyOne)
 ═══════════════════════════════════════════════════════════════════
- Processes every image in pictures/ through:
-   Gemini Vision -> JSON storage -> Annotated output images
+ What this tests:
+   • Processes every image in pictures/ through Gemini
+   • Draws bounding boxes + labels + INVENTORY HUD with OpenCV
+   • Saves annotated results to pictures/annotated/
+   • No FiftyOne involved yet
 
- Storage: JSON (no MongoDB/FiftyOne needed — AVX workaround)
- To swap back to FiftyOne later: replace storage.save_sample()
- calls with fo.Sample + dataset.add_sample() — data structure is identical.
+ Controls (while viewing annotated image):
+   any key — next image
+   q       — quit early
 
- Prerequisites:
-   python milestone_1_images.py    <- images load OK
-   python milestone_2_gemini.py    <- Gemini API works
-   python milestone_3_storage.py   <- JSON storage works
-   python milestone_4_detector.py  <- detection + drawing works
-
- Output:
-   pictures/annotated/   <- images with bounding boxes drawn
-   results/circuitmind.json  <- all detections in JSON format
+ Expected output:
+   [Detector] Processing 2 image(s)...
+   [Detector] [1/2] board1.jpg
+   [Gemini] Sending to Gemini... 3 component(s) detected
+   [Detector] Annotated saved: pictures/annotated/board1.jpg
+   [Detector] Inventory:
+     2x resistor  (10k, 4.7k)
+     1x ic  (NE555)
+   [Milestone 4] PASSED
 
  Run:
-   python circuitmind.py
-
- View results:
-   python view_results.py
+   python milestone_4_detector.py
 ═══════════════════════════════════════════════════════════════════
 """
 
@@ -31,23 +31,23 @@ import os
 import re
 import sys
 import json
-import config   # sets env vars + shared settings
-import storage  # JSON storage layer (replaces FiftyOne)
+import config   # sets FIFTYONE_DATABASE_DIR + all shared settings
 
 from pathlib import Path
 from collections import Counter, defaultdict
 
 import cv2
+import numpy as np
 from PIL import Image
 from google import genai
 
-# ── Pull all settings from config ─────────────────────────────────────────────
 GEMINI_MODEL   = config.GEMINI_MODEL
 GEMINI_PROMPT  = config.GEMINI_PROMPT
 TYPE_COLORS    = config.TYPE_COLORS
 DEFAULT_COLOR  = config.DEFAULT_COLOR
 LOCATION_BOXES = config.LOCATION_BOXES
 DEFAULT_BOX    = config.DEFAULT_BOX
+
 ANNOTATED_DIR  = config.PICTURES_DIR / "annotated"
 
 
@@ -57,9 +57,9 @@ ANNOTATED_DIR  = config.PICTURES_DIR / "annotated"
 
 def call_gemini(client, pil_img, img_name):
     """Send image to Gemini. Returns list of component dicts, or [] on error."""
-    print("[Gemini] Analysing " + img_name + "...", end="  ", flush=True)
+    print("[Gemini] Sending " + img_name + " to Gemini...", end="  ", flush=True)
     try:
-        response = client.models.generate_content(
+        response   = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=[GEMINI_PROMPT, pil_img],
         )
@@ -67,10 +67,10 @@ def call_gemini(client, pil_img, img_name):
         cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
         m       = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if not m:
-            raise ValueError("No JSON block: " + raw[:80])
+            raise ValueError("No JSON block found")
         data       = json.loads(m.group())
         components = data.get("components", [])
-        print(str(len(components)) + " component(s)")
+        print(str(len(components)) + " component(s) detected")
         return components
     except json.JSONDecodeError as e:
         print("JSON error: " + str(e))
@@ -89,8 +89,12 @@ def color_for_type(ctype):
     return TYPE_COLORS.get(ctype.lower(), DEFAULT_COLOR)
 
 
-def draw_overlay(frame, components):
-    """Draw bounding boxes, labels, and INVENTORY HUD onto frame."""
+def draw_detections(frame, components):
+    """
+    Draw bounding boxes, labels, and INVENTORY HUD on frame.
+    components: list of dicts from Gemini (type, value, location, confidence)
+    Returns annotated frame.
+    """
     h, w      = frame.shape[:2]
     inventory = Counter()
 
@@ -101,7 +105,7 @@ def draw_overlay(frame, components):
         conf     = str(comp.get("confidence", "low"))
         inventory[ctype] += 1
 
-        color          = color_for_type(ctype)
+        color       = color_for_type(ctype)
         bx, by, bw, bh = LOCATION_BOXES.get(location.lower().strip(), DEFAULT_BOX)
 
         x1, y1 = int(bx * w),        int(by * h)
@@ -119,7 +123,7 @@ def draw_overlay(frame, components):
             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA,
         )
 
-    # INVENTORY HUD (top-left)
+    # INVENTORY HUD (top-left corner)
     hud_lines = ["INVENTORY"] + [str(cnt) + "x " + t for t, cnt in sorted(inventory.items())]
     y_cur = 28
     for line in hud_lines:
@@ -128,13 +132,12 @@ def draw_overlay(frame, components):
             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA,
         )
         y_cur += 30
+
     return frame
 
 
-def print_inventory(img_name, components):
-    """Print formatted component inventory to terminal."""
-    print()
-    print("=== CIRCUITMIND INVENTORY [" + img_name + "] ===")
+def print_inventory(components):
+    """Print component inventory to terminal."""
     tally = defaultdict(list)
     for comp in components:
         tally[comp.get("type", "other").lower()].append(
@@ -142,13 +145,12 @@ def print_inventory(img_name, components):
         )
     if not tally:
         print("  (no components detected)")
+        return
     for ctype, vals in sorted(tally.items()):
         if len(vals) == 1:
             print("  1x " + ctype + "  (" + vals[0] + ")")
         else:
-            print("  " + str(len(vals)) + "x " + ctype +
-                  "  (" + ", ".join(vals) + ")")
-    print("=" * 44)
+            print("  " + str(len(vals)) + "x " + ctype + "  (" + ", ".join(vals) + ")")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,14 +159,14 @@ def print_inventory(img_name, components):
 
 def main():
     print("=" * 60)
-    print(" CircuitMind — Full Pipeline")
+    print(" MILESTONE 4 — Picture detector  (no FiftyOne)")
     print("=" * 60)
     print()
 
     # ── API key ───────────────────────────────────────────────────────────────
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("[Error] Set GOOGLE_API_KEY:  export GOOGLE_API_KEY='...'")
+        print("[Error] Set GOOGLE_API_KEY first:  export GOOGLE_API_KEY='...'")
         sys.exit(1)
 
     # ── Gemini client ─────────────────────────────────────────────────────────
@@ -173,58 +175,66 @@ def main():
     print("[Gemini] Ready")
     print()
 
-    # ── Storage ───────────────────────────────────────────────────────────────
-    print("[Storage] Results file: " + str(storage.RESULTS_FILE))
-    print("[Storage] Existing samples: " + str(storage.sample_count()))
-    print()
-
-    # ── Images ────────────────────────────────────────────────────────────────
+    # ── Get images ────────────────────────────────────────────────────────────
     image_paths = config.get_image_paths()
     total       = len(image_paths)
     print()
 
     # ── Output folder ─────────────────────────────────────────────────────────
     ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
-    print("[Output] Annotated images -> " + str(ANNOTATED_DIR))
+    print("[Detector] Annotated images will be saved to: " + str(ANNOTATED_DIR))
     print()
 
     # ── Process each image ────────────────────────────────────────────────────
-    for i, img_path in enumerate(image_paths, 1):
-        print("[CircuitMind] [" + str(i) + "/" + str(total) + "] " + img_path.name)
-        print("-" * 44)
+    win_title = "Milestone 4 — Detections  (any key = next,  q = quit)"
+    cv2.namedWindow(win_title, cv2.WINDOW_NORMAL)
 
-        # Load image
+    print("[Detector] Processing " + str(total) + " image(s)...")
+    print()
+
+    for i, img_path in enumerate(image_paths, 1):
+        print("[Detector] [" + str(i) + "/" + str(total) + "] " + img_path.name)
+        print("-" * 40)
+
+        # Load with OpenCV for drawing
         frame = cv2.imread(str(img_path))
         if frame is None:
-            print("[CircuitMind] Could not load — skipping")
+            print("[Detector] Could not load image — skipping")
             continue
+
+        # Load with PIL for Gemini (needs RGB)
         pil_img = Image.open(img_path).convert("RGB")
 
-        # Gemini detection
+        # Call Gemini
         components = call_gemini(client, pil_img, img_path.name)
 
-        # Save to JSON storage
-        total_saved = storage.save_sample(str(img_path.resolve()), components)
-        print("[Storage] Dataset total: " + str(total_saved) + " sample(s)")
-
-        # Draw annotated image
-        annotated = draw_overlay(frame.copy(), components)
-        out_path  = ANNOTATED_DIR / img_path.name
-        cv2.imwrite(str(out_path), annotated)
-        print("[Output] Annotated saved: " + str(out_path))
-
         # Print inventory
-        print_inventory(img_path.name, components)
+        print("[Detector] Inventory:")
+        print_inventory(components)
+
+        # Draw on frame
+        annotated = draw_detections(frame.copy(), components)
+
+        # Save annotated image
+        out_path = ANNOTATED_DIR / img_path.name
+        cv2.imwrite(str(out_path), annotated)
+        print("[Detector] Annotated saved: " + str(out_path))
         print()
 
-    # ── Done ──────────────────────────────────────────────────────────────────
-    print("[CircuitMind] All " + str(total) + " image(s) processed")
+        # Show in window
+        h, w = annotated.shape[:2]
+        cv2.resizeWindow(win_title, min(w, 1000), min(h, 750))
+        cv2.imshow(win_title, annotated)
+        key = cv2.waitKey(0) & 0xFF
+        if key == ord("q"):
+            print("[Detector] Quit early")
+            break
+
+    cv2.destroyAllWindows()
+
+    print("[Milestone 4] PASSED")
     print()
-    storage.print_summary()
-    print()
-    print("Next steps:")
-    print("  View annotated images:  python view_results.py")
-    print("  Results JSON:           cat results/circuitmind.json")
+    print("  -> Ready for full pipeline  (python circuitmind.py)")
 
 
 if __name__ == "__main__":
